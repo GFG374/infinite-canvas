@@ -2,8 +2,17 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { CanvasNodeMetadata, CanvasNodeType } from "../types";
 
+export type CanvasPanelTab = "canvas" | "assets" | "prompts";
+export type CanvasAssetSource = "mine" | "library";
+
 type CanvasUiStore = {
     generationDefaults: Partial<Record<CanvasNodeType.Image | CanvasNodeType.Video, Pick<CanvasNodeMetadata, "quality" | "size" | "vquality">>>;
+    sidePanelTab: CanvasPanelTab;
+    assetSource: CanvasAssetSource;
+    assetFormOpen: boolean;
+    setAssetFormOpen: (open: boolean) => void;
+    setSidePanelTab: (tab: CanvasPanelTab) => void;
+    setAssetSource: (source: CanvasAssetSource) => void;
     editingProjectId: string | null;
     editingProjectTitle: string;
     selectedProjectIds: string[];
@@ -18,6 +27,12 @@ type CanvasUiStore = {
 
 export const useCanvasUiStore = create<CanvasUiStore>()(persist((set) => ({
     generationDefaults: {},
+    sidePanelTab: "assets",
+    assetSource: "mine",
+    assetFormOpen: false,
+    setAssetFormOpen: (assetFormOpen) => set({ assetFormOpen }),
+    setSidePanelTab: (sidePanelTab) => set({ sidePanelTab }),
+    setAssetSource: (assetSource) => set({ assetSource }),
     editingProjectId: null,
     editingProjectTitle: "",
     selectedProjectIds: [],

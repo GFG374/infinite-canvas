@@ -56,16 +56,16 @@ import { buildNodeChatMessages, buildNodeGenerationContext, buildNodeGenerationI
 import { CanvasNodeHoverToolbar, CanvasNodeInfoModal } from "../components/canvas-node-hover-toolbar";
 import { InfiniteCanvas } from "../components/infinite-canvas";
 import { Minimap } from "../components/canvas-mini-map";
-import { CanvasNode } from "../components/canvas-node";
+import { CanvasNode, ConnectionHandleDot } from "../components/canvas-node";
 import { CanvasNodePromptPanel, type CanvasNodeGenerationMode, type CanvasVideoFrameOption } from "../components/canvas-node-prompt-panel";
 import type { CanvasVideoResourceOption } from "../components/canvas-video-settings-popover";
 import { CanvasToolbar } from "../components/canvas-toolbar";
-import { AssetPickerModal, type AssetPickerTab } from "../components/asset-picker-modal";
+import { CanvasCreateMenu } from "../components/canvas-create-menu";
 import { CanvasZoomControls } from "../components/canvas-zoom-controls";
 import { CANVAS_ASSET_DRAG_TYPE, CanvasSidePanel } from "../components/canvas-side-panel";
 import { DEFAULT_CANVAS_AGENT_PANEL, DEFAULT_CANVAS_SIDE_PANEL, useCanvasStore } from "../stores/use-canvas-store";
-import { useCanvasUiStore } from "../stores/use-canvas-ui-store";
-import { assistantReferenceContentFromNode, buildNodeMentionReferences, isCanvasReferenceNode } from "../utils/canvas-resource-references";
+import { useCanvasUiStore, type CanvasAssetSource } from "../stores/use-canvas-ui-store";
+import { assistantReferenceContentFromNode, buildNodeMentionReferences, getContextResourceNodes, isCanvasReferenceNode } from "../utils/canvas-resource-references";
 import { buildCanvasAgentContext } from "../agent/canvas-agent-context";
 import type { CanvasAgentAction, CanvasAgentToolResult } from "../agent/canvas-agent-tools";
 import {
@@ -262,56 +262,8 @@ function ConnectionCreateOption({ theme, icon, title, description, onClick }: { 
     );
 }
 
-function NodeCreateMenu({
-    position,
-    onCreate,
-    onUpload,
-    onOpenAssetLibrary,
-    onClose,
-}: {
-    position: Position;
-    onCreate: (type: CanvasNodeType) => void;
-    onUpload: () => void;
-    onOpenAssetLibrary: () => void;
-    onClose: () => void;
-}) {
-    const theme = canvasThemes[useThemeStore((state) => state.theme)];
-    const menuRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        const handlePointerDown = (event: PointerEvent) => {
-            if (menuRef.current && !menuRef.current.contains(event.target as Node)) onClose();
-        };
-        document.addEventListener("pointerdown", handlePointerDown, true);
-        return () => document.removeEventListener("pointerdown", handlePointerDown, true);
-    }, [onClose]);
-
-    return (
-        <div ref={menuRef} className="absolute z-[120] w-[300px] rounded-[18px] border p-3 shadow-2xl backdrop-blur" data-canvas-no-zoom style={{ left: position.x, top: position.y, transform: "scale(calc(var(--canvas-inverse-scale) * 0.9))", transformOrigin: "top left", background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }} onPointerDown={(event) => event.stopPropagation()}>
-            <div className="mb-2 flex items-center justify-between px-1">
-                <span className="text-sm font-medium" style={{ color: theme.node.muted }}>添加节点</span>
-                <button type="button" className="grid size-7 place-items-center rounded-lg opacity-55 transition hover:opacity-100" onClick={onClose} aria-label="关闭">×</button>
-            </div>
-            <div className="grid gap-1">
-                <ConnectionCreateOption theme={theme} icon={<List className="size-5" />} title="文本生成" description="脚本、广告词、品牌文案" onClick={() => onCreate(CanvasNodeType.Text)} />
-                <ConnectionCreateOption theme={theme} icon={<ImageIcon className="size-5" />} title="图片生成" onClick={() => onCreate(CanvasNodeType.Image)} />
-                <ConnectionCreateOption theme={theme} icon={<Video className="size-5" />} title="视频生成" onClick={() => onCreate(CanvasNodeType.Video)} />
-                <ConnectionCreateOption theme={theme} icon={<Music2 className="size-5" />} title="音频参考" onClick={() => onCreate(CanvasNodeType.Audio)} />
-                <ConnectionCreateOption theme={theme} icon={<Globe2 className="size-5" />} title="全景图" description="文生全景、图生全景" onClick={() => onCreate(CanvasNodeType.Panorama)} />
-                <ConnectionCreateOption theme={theme} icon={<Layers3 className="size-5" />} title="3D 导演台" description="3D场景、角色、机位" onClick={() => onCreate(CanvasNodeType.Director)} />
-                <ConnectionCreateOption theme={theme} icon={<Settings2 className="size-5" />} title="配置节点" description="模型、尺寸、数量和输入顺序" onClick={() => onCreate(CanvasNodeType.Config)} />
-                <div className="mb-2 mt-3 flex items-center justify-between px-1">
-                    <span className="text-sm font-medium" style={{ color: theme.node.muted }}>添加资源</span>
-                </div>
-                <ConnectionCreateOption theme={theme} icon={<Upload className="size-5" />} title="上传" description="图片、视频或音频" onClick={onUpload} />
-                <ConnectionCreateOption theme={theme} icon={<Images className="size-5" />} title="从素材库选择" description="文本、图片或视频" onClick={onOpenAssetLibrary} />
-            </div>
-        </div>
-    );
-}
-
 function InfiniteCanvasPage({ projectId }: { projectId: string }) {
-    const { message } = App.useApp();
+    const { message, modal } = App.useApp();
     const router = useRouter();
     const containerRef = useRef<HTMLDivElement>(null);
     const imageInputRef = useRef<HTMLInputElement>(null);
@@ -385,14 +337,13 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
     const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
     const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
     const [nodeCreatePosition, setNodeCreatePosition] = useState<Position | null>(null);
+    const [nodeCreateAnchor, setNodeCreateAnchor] = useState<Position>({ x: 0, y: 0 });
     const [runningNodeId, setRunningNodeId] = useState<string | null>(null);
     const [isMiniMapOpen, setIsMiniMapOpen] = useState(false);
-    const [backgroundMode, setBackgroundMode] = useState<CanvasBackgroundMode>("lines");
+    const [backgroundMode, setBackgroundMode] = useState<CanvasBackgroundMode>("dots");
     const [showImageInfo, setShowImageInfo] = useState(false);
     const [sidePanel, setSidePanel] = useState(() => DEFAULT_CANVAS_SIDE_PANEL);
     const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
-    const [assetPickerOpen, setAssetPickerOpen] = useState(false);
-    const [assetPickerTab, setAssetPickerTab] = useState<AssetPickerTab>("my-assets");
     const [pendingPanoramaImport, setPendingPanoramaImport] = useState<PendingPanoramaImport | null>(null);
     const [projectLoaded, setProjectLoaded] = useState(false);
     const [toolbarNodeId, setToolbarNodeId] = useState<string | null>(null);
@@ -627,7 +578,8 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
             setChatSessions(restoredSessions);
             setActiveChatId(project.activeChatId || null);
             setAgentConfig(project.agentConfig || null);
-            setBackgroundMode(project.backgroundMode);
+            const restoredBackground = project.backgroundMode === "blank" ? "blank" : "dots";
+            setBackgroundMode(restoredBackground);
             setShowImageInfo(project.showImageInfo || false);
             setViewport(project.viewport);
             setSidePanel(project.sidePanel || DEFAULT_CANVAS_SIDE_PANEL);
@@ -642,7 +594,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
             lastHistoryRef.current = {
                 nodes: restoredNodes,
                 connections: project.connections,
-                backgroundMode: project.backgroundMode,
+                backgroundMode: restoredBackground,
                 showImageInfo: project.showImageInfo || false,
             };
             setHistoryState({ canUndo: false, canRedo: false });
@@ -650,6 +602,8 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
         };
         void restore();
     }, [hydrated, openProject, projectId, router]);
+
+    useEffect(() => { useThemeStore.getState().setTheme("dark"); }, [projectId]);
 
     useEffect(() => {
         if (!projectLoaded) return;
@@ -1059,6 +1013,8 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
     const previewNode = previewNodeId ? nodeById.get(previewNodeId) || null : null;
     const openDirectorNode = openDirectorNodeId ? nodeById.get(openDirectorNodeId) || null : null;
     const hasMultipleSelectedNodes = selectedNodeIds.size > 1;
+    const groupingNodes = nodes.filter((node) => selectedNodeIds.has(node.id));
+    const groupingBounds = hasMultipleSelectedNodes && groupingNodes.every((node) => node.type !== CanvasNodeType.Group && !node.metadata?.groupId) ? getNodeBounds(groupingNodes) : null;
     const activeNodeId = hasMultipleSelectedNodes ? null : hoveredNodeId || (selectedNodeIds.size === 1 ? Array.from(selectedNodeIds)[0] : null);
     const batchChildCountById = useMemo(() => {
         const map = new Map<string, number>();
@@ -1139,37 +1095,26 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
     }, [connections, nodes]);
     const connectedNodesByNodeId = useMemo(() => {
         const map = new Map<string, CanvasNodeData[]>();
-        connections.forEach((connection) => {
-            const source = nodeById.get(connection.fromNodeId);
-            if (!source || !isCanvasReferenceNode(source)) return;
-            const connected = map.get(connection.toNodeId);
-            if (connected) connected.push(source);
-            else map.set(connection.toNodeId, [source]);
-        });
+        new Set(connections.map((connection) => connection.toNodeId)).forEach((nodeId) => map.set(nodeId, getContextResourceNodes(nodeId, nodes, connections)));
         return map;
-    }, [connections, nodeById]);
+    }, [connections, nodes]);
     const referenceConnectedNodeIds = useMemo(() => new Set([referencePickerNodeId, ...(referencePickerNodeId ? connectedNodesByNodeId.get(referencePickerNodeId)?.map((node) => node.id) || [] : [])].filter((id): id is string => Boolean(id))), [connectedNodesByNodeId, referencePickerNodeId]);
     const videoFrameOptionsByNodeId = useMemo(() => {
         const map = new Map<string, CanvasVideoFrameOption[]>();
         nodes.forEach((node) => {
             if (node.type !== CanvasNodeType.Video && node.type !== CanvasNodeType.Config) return;
-            const options = connections.flatMap((connection) => {
-                if (connection.toNodeId !== node.id) return [];
-                const imageNode = nodeById.get(connection.fromNodeId);
+            const options = (connectedNodesByNodeId.get(node.id) || []).flatMap((imageNode) => {
                 return isCanvasImageNodeType(imageNode?.type) && imageNode?.metadata?.content ? [{ nodeId: imageNode.id, label: imageNode.title || "图片节点", previewUrl: imageNode.metadata.content }] : [];
             });
             map.set(node.id, options);
         });
         return map;
-    }, [connections, nodeById, nodes]);
+    }, [connectedNodesByNodeId, nodes]);
     const videoResourceOptionsByNodeId = useMemo(() => {
         const map = new Map<string, CanvasVideoResourceOption[]>();
         nodes.forEach((node) => {
             if (node.type !== CanvasNodeType.Video && node.type !== CanvasNodeType.Config && node.type !== CanvasNodeType.Audio) return;
-            const options: CanvasVideoResourceOption[] = connections.flatMap<CanvasVideoResourceOption>((connection) => {
-                if (connection.toNodeId !== node.id) return [];
-                const source = nodeById.get(connection.fromNodeId);
-                if (!source) return [];
+            const options: CanvasVideoResourceOption[] = (connectedNodesByNodeId.get(node.id) || []).flatMap<CanvasVideoResourceOption>((source) => {
                 const label = source.title || source.id;
                 if (source.type === CanvasNodeType.Text) {
                     const text = source.metadata?.content || source.metadata?.prompt || "";
@@ -1183,7 +1128,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
             map.set(node.id, options);
         });
         return map;
-    }, [connections, nodeById, nodes]);
+    }, [connectedNodesByNodeId, nodes]);
     const createNode = useCallback(
         (type: CanvasNodeType, position?: Position, textContent?: string, nodeId?: string) => {
             const targetPosition = position || getCanvasCenter();
@@ -2367,8 +2312,20 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
     }, []);
 
     const disconnectNodeReference = useCallback((fromNodeId: string, toNodeId: string) => {
+        const groupId = nodesRef.current.find((node) => node.id === fromNodeId)?.metadata?.groupId;
+        const groupConnection = groupId ? connectionsRef.current.find((connection) => connection.fromNodeId === groupId && connection.toNodeId === toNodeId) : undefined;
+        if (groupConnection) {
+            modal.confirm({
+                title: "断开整组参考？",
+                content: "这项参考通过组的连线传入。确认后会断开该组的全部参考，组和素材节点不会被删除。",
+                okText: "断开整组",
+                cancelText: "取消",
+                onOk: () => setConnections((prev) => prev.filter((connection) => connection.id !== groupConnection.id)),
+            });
+            return;
+        }
         setConnections((prev) => prev.filter((connection) => connection.fromNodeId !== fromNodeId || connection.toNodeId !== toNodeId));
-    }, []);
+    }, [modal]);
 
     const startNodeReferenceSelection = useCallback((nodeId: string) => {
         setReferencePickerNodeId(nodeId);
@@ -2982,6 +2939,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
             event.preventDefault();
             const payload = draggedAssetPayloadRef.current;
             if (event.dataTransfer.getData(CANVAS_ASSET_DRAG_TYPE) && payload) {
+                assetInsertPositionRef.current = null;
                 void insertAssetAt(payload, screenToCanvas(event.clientX, event.clientY));
                 return;
             }
@@ -3022,11 +2980,15 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
         setTitleEditing(false);
     }, [projectId, renameProject, titleDraft]);
 
-    const preventCanvasContextMenu = useCallback((event: ReactMouseEvent) => {
-        if ((event.target as HTMLElement).closest("[data-node-id]")) return;
+    const openCanvasCreateMenu = useCallback((event: ReactMouseEvent) => {
+        if ((event.target as HTMLElement).closest("[data-node-id],[data-connection-id],[data-canvas-no-zoom]")) return;
         event.preventDefault();
+        if (referencePickerNodeId) return;
+        event.stopPropagation();
         setContextMenu(null);
-    }, []);
+        setNodeCreatePosition(screenToCanvas(event.clientX, event.clientY));
+        setNodeCreateAnchor({ x: event.clientX, y: event.clientY });
+    }, [referencePickerNodeId, screenToCanvas]);
 
     const handleGenerateNode = useCallback(
         async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => {
@@ -4317,10 +4279,15 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
             const position = assetInsertPositionRef.current || undefined;
             assetInsertPositionRef.current = null;
             void insertAssetAtRef.current(payload, position);
-            setAssetPickerOpen(false);
         },
         [],
     );
+
+    const openCanvasAssets = useCallback((source: CanvasAssetSource, position?: Position) => {
+        assetInsertPositionRef.current = position || null;
+        useCanvasUiStore.setState({ sidePanelTab: "assets", assetSource: source });
+        setSidePanel(current => ({ ...current, open: true, width: Math.max(320, current.width) }));
+    }, []);
 
     const focusNode = useCallback(
         (nodeId: string) => {
@@ -4362,7 +4329,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
     if (!projectLoaded) return <CanvasRefreshShell />;
     return (
         <main
-            className="flex h-full min-h-0 overflow-hidden"
+            className="relative flex h-full min-h-0 overflow-hidden"
             style={{ background: theme.canvas.background, color: theme.node.text }}
             onPointerDownCapture={(event) => {
                 const panel = document.querySelector("[data-canvas-agent-panel]");
@@ -4376,6 +4343,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                 open={sidePanel.open}
                 width={sidePanel.width}
                 onWidthChange={(width) => setSidePanel((current) => ({ ...current, width }))}
+                onClose={() => { assetInsertPositionRef.current = null; setSidePanel(current => ({ ...current, open: false })); }}
                 onFocusNode={focusNode}
                 onAssetDragStart={(payload) => {
                     draggedAssetPayloadRef.current = payload;
@@ -4391,7 +4359,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                 <CanvasTopBar
                     title={currentProject?.title || "未命名画布"}
                     sidePanelOpen={sidePanel.open}
-                    onToggleSidePanel={() => setSidePanel((current) => ({ ...current, open: !current.open }))}
+                    onToggleSidePanel={() => { assetInsertPositionRef.current = null; setSidePanel((current) => ({ ...current, open: !current.open })); }}
                     titleDraft={titleDraft}
                     isTitleEditing={titleEditing}
                     onTitleDraftChange={setTitleDraft}
@@ -4422,17 +4390,14 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                     onViewportChange={(next) => {
                         setViewport(next);
                         setContextMenu(null);
+                        setNodeCreatePosition(null);
                     }}
                     onCanvasMouseDown={(event) => {
                         if (!referencePickerNodeId) handleCanvasMouseDown(event);
                     }}
                     onCanvasDeselect={referencePickerNodeId ? undefined : deselectCanvas}
-                    onCanvasDoubleClick={(event) => {
-                        if (referencePickerNodeId) return;
-                        setContextMenu(null);
-                        setNodeCreatePosition(screenToCanvas(event.clientX, event.clientY));
-                    }}
-                    onContextMenu={preventCanvasContextMenu}
+                    onCanvasDoubleClick={openCanvasCreateMenu}
+                    onContextMenu={openCanvasCreateMenu}
                     onDrop={handleDrop}
                 >
                     <svg className="absolute left-0 top-0 h-[10000px] w-[10000px] overflow-visible" style={{ pointerEvents: "none", transform: "translateZ(0)", zIndex: 6 }}>
@@ -4571,6 +4536,25 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                         />
                     ))}
 
+                    {!referencePickerNodeId ? visibleNodes.filter((node) => node.type === CanvasNodeType.Group).map((node) => (
+                        <div key={node.id} data-group-output-node-id={node.id} className="pointer-events-none absolute z-[60]" style={{ left: node.position.x, top: node.position.y, width: node.width, height: node.height }}>
+                            <ConnectionHandleDot side="right" visible onMouseDown={(event) => { if (event.button === 0) handleConnectStart(event, node.id, "source"); }} />
+                        </div>
+                    )) : null}
+                    {groupingBounds && !selectionBox && !referencePickerNodeId && !connectingParams ? (
+                        <div className="pointer-events-none absolute z-[55] rounded-xl border border-dashed" style={{ left: groupingBounds.left - GROUP_PADDING, top: groupingBounds.top - GROUP_PADDING, width: groupingBounds.right - groupingBounds.left + GROUP_PADDING * 2, height: groupingBounds.bottom - groupingBounds.top + GROUP_PADDING * 2, borderColor: theme.node.activeStroke }}>
+                            <button type="button" className="pointer-events-auto absolute -top-9 left-0 rounded-lg border px-3 py-1 text-xs" style={{ background: theme.node.panel, borderColor: theme.node.stroke }} data-canvas-no-zoom onPointerDown={(event) => event.stopPropagation()} onClick={() => createGroupFromSelection()}>编为一组</button>
+                            <button type="button" aria-label="编组并连接所选节点" title="拖动连线（自动编组）" className="pointer-events-auto absolute -right-6 top-1/2 flex size-12 -translate-y-1/2 cursor-crosshair items-center justify-center" data-canvas-no-zoom onPointerDown={(event) => event.stopPropagation()} onMouseDown={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                if (event.button !== 0) return;
+                                const groupId = createGroupFromSelection();
+                                if (groupId) handleConnectStart(event, groupId, "source");
+                            }}>
+                                <span className="size-3 rounded-full border-2" style={{ background: theme.node.panel, borderColor: theme.node.activeStroke }} />
+                            </button>
+                        </div>
+                    ) : null}
                     {selectionBox ? (
                         <svg
                             className="pointer-events-none absolute z-[100] overflow-visible"
@@ -4586,8 +4570,8 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                     ) : null}
                     {pendingConnectionCreate ? <ConnectionCreateMenu pending={pendingConnectionCreate} onCreate={(type) => createConnectedNode(type, pendingConnectionCreate)} onClose={cancelPendingConnectionCreate} /> : null}
                     {nodeCreatePosition ? (
-                        <NodeCreateMenu
-                            position={nodeCreatePosition}
+                        <CanvasCreateMenu
+                            anchor={nodeCreateAnchor}
                             onCreate={(type) => {
                                 createNode(type, nodeCreatePosition);
                                 setNodeCreatePosition(null);
@@ -4597,10 +4581,8 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                                 setNodeCreatePosition(null);
                             }}
                             onOpenAssetLibrary={() => {
-                                assetInsertPositionRef.current = nodeCreatePosition;
+                                openCanvasAssets("mine", nodeCreatePosition);
                                 setNodeCreatePosition(null);
-                                setAssetPickerTab("library");
-                                setAssetPickerOpen(true);
                             }}
                             onClose={() => setNodeCreatePosition(null)}
                         />
@@ -4680,14 +4662,8 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                     onCanvasToolChange={setCanvasTool}
                     onBackgroundModeChange={setBackgroundMode}
                     onShowImageInfoChange={setShowImageInfo}
-                    onOpenAssetLibrary={() => {
-                        setAssetPickerTab("library");
-                        setAssetPickerOpen(true);
-                    }}
-                    onOpenMyAssets={() => {
-                        setAssetPickerTab("my-assets");
-                        setAssetPickerOpen(true);
-                    }}
+                    onOpenAssetLibrary={() => openCanvasAssets("library")}
+                    onOpenMyAssets={() => openCanvasAssets("mine")}
                 />
 
                 {isMiniMapOpen ? <Minimap nodes={nodes} viewport={viewport} viewportSize={size} onViewportChange={setViewport} /> : null}
@@ -4910,7 +4886,6 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                     <p className="text-sm opacity-60">这会删除当前画布上的所有节点和连线。</p>
                 </Modal>
 
-                <AssetPickerModal open={assetPickerOpen} defaultTab={assetPickerTab} onInsert={handleAssetInsert} onClose={() => { assetInsertPositionRef.current = null; setAssetPickerOpen(false); }} />
             </section>
             {assistantMounted ? (
                 <CanvasAssistantPanel
@@ -4928,11 +4903,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                     onAgentConfigChange={handleAgentConfigChange}
                     onPasteImage={pasteAssistantImage}
                     onOpenUpload={() => handleUploadRequest()}
-                    onOpenAssets={() => {
-                        assetInsertPositionRef.current = null;
-                        setAssetPickerTab("my-assets");
-                        setAssetPickerOpen(true);
-                    }}
+                    onOpenAssets={() => openCanvasAssets("mine")}
                     getAgentContext={getCanvasAgentContext}
                     onExecuteAction={executeCanvasAgentAction}
                     onCollapseStart={() =>
@@ -5294,7 +5265,8 @@ function CanvasTopBar({
             <Modal title="快捷键" open={shortcutsOpen} onCancel={() => setShortcutsOpen(false)} footer={null} centered>
                 <div className="space-y-2 border-t pt-4 text-sm" style={{ borderColor: theme.node.stroke }}>
                     <Shortcut keys={["Space", "拖动"]} value="临时反转选择/移动工具" />
-                    <Shortcut keys={["滚轮"]} value="缩放画布" />
+                    <Shortcut keys={["双指滑动 / 滚轮"]} value="平移画布" />
+                    <Shortcut keys={["双指捏合 / ⌘ 或 Ctrl + 滚轮"]} value="缩放画布" />
                     <Shortcut keys={["拖动"]} value="使用当前工具操作画布" />
                     <Shortcut keys={["Shift / Ctrl / Cmd", "点击"]} value="追加选择节点" />
                     <Shortcut keys={["Ctrl / Cmd", "G"]} value="创建组" />
@@ -5539,7 +5511,12 @@ function normalizeConnection(firstNodeId: string, secondNodeId: string, nodes: C
     const first = nodes.find((node) => node.id === firstNodeId);
     const second = nodes.find((node) => node.id === secondNodeId);
     if (!first || !second || first.id === second.id) return null;
-    if (first.type === CanvasNodeType.Group || second.type === CanvasNodeType.Group) return null;
+    if (first.type === CanvasNodeType.Group || second.type === CanvasNodeType.Group) {
+        const source = firstHandleType === "source" ? first : second;
+        const target = firstHandleType === "source" ? second : first;
+        if (source.type !== CanvasNodeType.Group || target.type === CanvasNodeType.Group || target.type === CanvasNodeType.Director || target.metadata?.groupId === source.id) return null;
+        return { fromNodeId: source.id, toNodeId: target.id };
+    }
     if (second.type === CanvasNodeType.Director) {
         if (!isCanvasImageNodeType(first.type)) return null;
         return firstHandleType === "target" ? { fromNodeId: second.id, toNodeId: first.id } : { fromNodeId: first.id, toNodeId: second.id };

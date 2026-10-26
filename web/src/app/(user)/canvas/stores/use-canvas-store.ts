@@ -14,7 +14,7 @@ export type CanvasSidePanelState = {
     width: number;
 };
 
-export const DEFAULT_CANVAS_SIDE_PANEL: CanvasSidePanelState = { open: true, width: 280 };
+export const DEFAULT_CANVAS_SIDE_PANEL: CanvasSidePanelState = { open: true, width: 320 };
 export const DEFAULT_CANVAS_AGENT_PANEL: CanvasSidePanelState = { open: false, width: 464 };
 
 export type CanvasProject = {
@@ -266,7 +266,7 @@ export const useCanvasStore = create<CanvasStore>()(
                     agentConfig: options?.agentConfig || null,
                     autoTitlePending: true,
                     pendingAgentRequest: options?.pendingAgentRequest,
-                    backgroundMode: "lines",
+                    backgroundMode: "dots",
                     showImageInfo: false,
                     viewport: initialViewport,
                     sidePanel: DEFAULT_CANVAS_SIDE_PANEL,
@@ -291,7 +291,7 @@ export const useCanvasStore = create<CanvasStore>()(
                     activeChatId: source.activeChatId || null,
                     agentConfig: source.agentConfig || null,
                     autoTitlePending: false,
-                    backgroundMode: source.backgroundMode || "lines",
+                    backgroundMode: source.backgroundMode === "blank" ? "blank" : "dots",
                     showImageInfo: source.showImageInfo || false,
                     viewport: source.viewport || initialViewport,
                     sidePanel: source.sidePanel || DEFAULT_CANVAS_SIDE_PANEL,

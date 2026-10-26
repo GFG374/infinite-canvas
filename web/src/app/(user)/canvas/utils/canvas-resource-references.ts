@@ -60,11 +60,19 @@ export function getGenerationResourceNodes(nodeId: string, nodes: CanvasNodeData
     return [];
 }
 
-function getContextResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+export function getContextResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+    const seen = new Set<string>([nodeId]);
     return connections
         .filter((connection) => connection.toNodeId === nodeId)
-        .map((connection) => nodes.find((node) => node.id === connection.fromNodeId))
-        .filter((node): node is CanvasNodeData => Boolean(node && isCanvasReferenceNode(node)));
+        .flatMap((connection) => {
+            const source = nodes.find((node) => node.id === connection.fromNodeId);
+            return source?.type === CanvasNodeType.Group ? nodes.filter((node) => node.metadata?.groupId === source.id) : source ? [source] : [];
+        })
+        .filter((node) => {
+            if (seen.has(node.id) || !isCanvasReferenceNode(node)) return false;
+            seen.add(node.id);
+            return true;
+        });
 }
 
 function getConnectedConfigResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
