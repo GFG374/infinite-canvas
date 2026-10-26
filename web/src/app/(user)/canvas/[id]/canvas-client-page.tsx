@@ -369,6 +369,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
     const [superResolveNodeId, setSuperResolveNodeId] = useState<string | null>(null);
     const [angleNodeId, setAngleNodeId] = useState<string | null>(null);
     const [previewNodeId, setPreviewNodeId] = useState<string | null>(null);
+    const [hoverPreviewNodeId, setHoverPreviewNodeId] = useState<string | null>(null);
     const [agentPanel, setAgentPanel] = useState(DEFAULT_CANVAS_AGENT_PANEL);
     const [assistantMounted, setAssistantMounted] = useState(false);
     const [titleEditing, setTitleEditing] = useState(false);
@@ -934,20 +935,41 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
         [screenToCanvas],
     );
 
-    const visibleNodes = useMemo(() => {
+    const viewBounds = useMemo(() => {
         const padding = 280;
         const rect = containerRef.current?.getBoundingClientRect();
         const width = rect?.width || size.width;
         const height = rect?.height || size.height;
-        const viewLeft = -viewport.x / viewport.k - padding;
-        const viewTop = -viewport.y / viewport.k - padding;
-        const viewRight = viewLeft + width / viewport.k + padding * 2;
-        const viewBottom = viewTop + height / viewport.k + padding * 2;
+        const left = -viewport.x / viewport.k - padding;
+        const top = -viewport.y / viewport.k - padding;
+        return { left, top, right: left + width / viewport.k + padding * 2, bottom: top + height / viewport.k + padding * 2 };
+        // 依赖 nodes 是为了在容器尺寸变化而 size 未更新时重新读一次 rect
+    }, [nodes, size.height, size.width, viewport.k, viewport.x, viewport.y]);
 
-        return nodes.filter((node) => !isHiddenBatchChild(node, nodes, collapsingBatchIds) && node.position.x + node.width > viewLeft && node.position.x < viewRight && node.position.y + node.height > viewTop && node.position.y < viewBottom);
-    }, [collapsingBatchIds, nodes, size.height, size.width, viewport.k, viewport.x, viewport.y]);
+    const visibleNodes = useMemo(
+        () => nodes.filter((node) => !isHiddenBatchChild(node, nodes, collapsingBatchIds) && node.position.x + node.width > viewBounds.left && node.position.x < viewBounds.right && node.position.y + node.height > viewBounds.top && node.position.y < viewBounds.bottom),
+        [collapsingBatchIds, nodes, viewBounds],
+    );
 
     const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+
+    // 连线也按视口裁剪：三次贝塞尔不会超出控制点凸包，用端点包围盒向外扩一个曲率量做安全判定。
+    const visibleConnections = useMemo(
+        () =>
+            connections.flatMap((connection) => {
+                const from = nodeById.get(connection.fromNodeId);
+                const to = nodeById.get(connection.toNodeId);
+                if (!from || !to || isHiddenBatchConnectionEndpoint(from, nodes) || isHiddenBatchConnectionEndpoint(to, nodes)) return [];
+                const startX = from.position.x + from.width;
+                const startY = from.position.y + from.height / 2;
+                const endX = to.position.x;
+                const endY = to.position.y + to.height / 2;
+                const curvature = Math.max(Math.abs(endX - startX) * 0.5, 50);
+                const inView = Math.max(startX + curvature, endX) > viewBounds.left && Math.min(startX, endX - curvature) < viewBounds.right && Math.max(startY, endY) > viewBounds.top && Math.min(startY, endY) < viewBounds.bottom;
+                return inView ? [{ connection, from, to }] : [];
+            }),
+        [connections, nodeById, nodes, viewBounds],
+    );
     const toolbarNode = toolbarNodeId ? nodeById.get(toolbarNodeId) || null : null;
     const infoNode = infoNodeId ? nodeById.get(infoNodeId) || null : null;
     const cropNode = cropNodeId ? nodeById.get(cropNodeId) || null : null;
@@ -1015,6 +1037,24 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
     const angleNode = angleNodeId ? nodeById.get(angleNodeId) || null : null;
     const contextMenuNode = contextMenu?.type === "node" ? nodeById.get(contextMenu.nodeId) || null : null;
     const previewNode = previewNodeId ? nodeById.get(previewNodeId) || null : null;
+    const hoverPreviewNode = hoverPreviewNodeId ? nodeById.get(hoverPreviewNodeId) || null : null;
+    const hoverPreviewMedia =
+        hoverPreviewNode && (hoverPreviewNode.type === CanvasNodeType.Image || hoverPreviewNode.type === CanvasNodeType.Video) && hoverPreviewNode.metadata?.content
+            ? {
+                  video: hoverPreviewNode.type === CanvasNodeType.Video,
+                  src: hoverPreviewNode.metadata.content,
+                  width: hoverPreviewNode.metadata.naturalWidth || hoverPreviewNode.width,
+                  height: hoverPreviewNode.metadata.naturalHeight || hoverPreviewNode.height,
+              }
+            : null;
+    const showHoverPreview = Boolean(hoverPreviewMedia);
+    const retainedHoverPreviewRef = useRef<{ video: boolean; src: string; title: string; width: number; height: number } | null>(null);
+    // 悬停结束后遮罩还要淡出，这里保留上一份内容，避免淡出过程中闪空
+    if (hoverPreviewMedia) {
+        const previewSize = fitNodeSize(hoverPreviewMedia.width, hoverPreviewMedia.height, size.width * 0.9, size.height * 0.9);
+        retainedHoverPreviewRef.current = { video: hoverPreviewMedia.video, src: hoverPreviewMedia.src, title: hoverPreviewNode?.title || "", width: previewSize.width, height: previewSize.height };
+    }
+    const retainedHoverPreview = retainedHoverPreviewRef.current;
     const openDirectorNode = openDirectorNodeId ? nodeById.get(openDirectorNodeId) || null : null;
     const hasMultipleSelectedNodes = selectedNodeIds.size > 1;
     const groupingNodes = nodes.filter((node) => selectedNodeIds.has(node.id));
@@ -1355,9 +1395,10 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
 
         if (!copiedNodes.length) return;
 
+        // 复制所有指向选中节点的连线（含起点不在选区内的参考连线），否则粘贴后的参考栏是空的
         clipboardRef.current = {
             nodes: copiedNodes,
-            connections: connectionsRef.current.filter((connection) => copiedIds.has(connection.fromNodeId) && copiedIds.has(connection.toNodeId)).map((connection) => ({ ...connection })),
+            connections: connectionsRef.current.filter((connection) => copiedIds.has(connection.toNodeId)).map((connection) => ({ ...connection })),
         };
     }, []);
 
@@ -1408,7 +1449,8 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
         });
 
         const nextConnections = clipboard.connections.flatMap((connection, index) => {
-            const fromNodeId = idMap.get(connection.fromNodeId);
+            // 起点不在选区内的参考连线保留原起点，复制的节点照样能引用原来的素材
+            const fromNodeId = idMap.get(connection.fromNodeId) ?? connection.fromNodeId;
             const toNodeId = idMap.get(connection.toNodeId);
             if (!fromNodeId || !toNodeId) return [];
             return [
@@ -1687,20 +1729,16 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                 }
 
                 const movedIds = new Set(initialPositions.map((item) => item.id));
-                const previewNodes = nodesRef.current.map((node) => {
-                    const initial = initialPositions.find((item) => item.id === node.id);
-                    return initial ? { ...node, position: { x: initial.x + dx, y: initial.y + dy } } : node;
-                });
-                setDropTargetGroupId(findGroupDropTarget(movedIds, previewNodes)?.id || null);
-
                 if (rafRef.current) cancelAnimationFrame(rafRef.current);
+                // 组投放检测和位置更新合并到同一帧：一次 mousemove 只做一遍全量节点遍历
                 rafRef.current = requestAnimationFrame(() => {
-                    setNodes((prev) =>
-                        prev.map((node) => {
-                            const initial = initialPositions.find((item) => item.id === node.id);
-                            return initial ? { ...node, position: { x: initial.x + dx, y: initial.y + dy } } : node;
-                        }),
-                    );
+                    const initialById = new Map(initialPositions.map((item) => [item.id, item]));
+                    const previewNodes = nodesRef.current.map((node) => {
+                        const initial = initialById.get(node.id);
+                        return initial ? { ...node, position: { x: initial.x + dx, y: initial.y + dy } } : node;
+                    });
+                    setNodes(previewNodes);
+                    setDropTargetGroupId(findGroupDropTarget(movedIds, previewNodes)?.id || null);
                     rafRef.current = null;
                 });
                 return;
@@ -4357,6 +4395,8 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                 onWidthChange={(width) => setSidePanel((current) => ({ ...current, width }))}
                 onClose={() => { assetInsertPositionRef.current = null; setSidePanel(current => ({ ...current, open: false })); }}
                 onFocusNode={focusNode}
+                onPreviewNode={(nodeId) => setPreviewNodeId(nodeId)}
+                onHoverNode={setHoverPreviewNodeId}
                 onAssetDragStart={(payload) => {
                     draggedAssetPayloadRef.current = payload;
                 }}
@@ -4413,39 +4453,27 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                     onDrop={handleDrop}
                 >
                     <svg className="absolute left-0 top-0 h-[10000px] w-[10000px] overflow-visible" style={{ pointerEvents: "none", transform: "translateZ(0)", zIndex: 6 }}>
-                        {connections
-                            .filter((connection) => {
-                                const from = nodeById.get(connection.fromNodeId);
-                                const to = nodeById.get(connection.toNodeId);
-                                return Boolean(from && to && !isHiddenBatchConnectionEndpoint(from, nodes) && !isHiddenBatchConnectionEndpoint(to, nodes));
-                            })
-                            .map((connection) => {
-                                const from = nodeById.get(connection.fromNodeId);
-                                const to = nodeById.get(connection.toNodeId);
-                                if (!from || !to) return null;
-
-                                return (
-                                    <ConnectionPath
-                                        key={connection.id}
-                                        connection={connection}
-                                        from={from}
-                                        to={to}
-                                        active={selectedConnectionId === connection.id || relatedHighlight.connectionIds.has(connection.id)}
-                                        onSelect={() => {
-                                            setSelectedConnectionId(connection.id);
-                                            setSelectedNodeIds(new Set());
-                                            setToolbarNodeId(null);
-                                            setContextMenu(null);
-                                        }}
-                                        onContextMenu={(event) => {
-                                            setSelectedConnectionId(connection.id);
-                                            setSelectedNodeIds(new Set());
-                                            setToolbarNodeId(null);
-                                            setContextMenu({ type: "connection", x: event.clientX, y: event.clientY, connectionId: connection.id });
-                                        }}
-                                    />
-                                );
-                            })}
+                        {visibleConnections.map(({ connection, from, to }) => (
+                            <ConnectionPath
+                                key={connection.id}
+                                connection={connection}
+                                from={from}
+                                to={to}
+                                active={selectedConnectionId === connection.id || relatedHighlight.connectionIds.has(connection.id)}
+                                onSelect={() => {
+                                    setSelectedConnectionId(connection.id);
+                                    setSelectedNodeIds(new Set());
+                                    setToolbarNodeId(null);
+                                    setContextMenu(null);
+                                }}
+                                onContextMenu={(event) => {
+                                    setSelectedConnectionId(connection.id);
+                                    setSelectedNodeIds(new Set());
+                                    setToolbarNodeId(null);
+                                    setContextMenu({ type: "connection", x: event.clientX, y: event.clientY, connectionId: connection.id });
+                                }}
+                            />
+                        ))}
                         {connectingParams ? <ActiveConnectionPath node={nodeById.get(connectingParams.nodeId)} handle={connectingParams} mouseWorld={mouseWorld} target={connectionTargetNodeId ? nodeById.get(connectionTargetNodeId) : undefined} /> : null}
                     </svg>
 
@@ -4603,6 +4631,24 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
 
                 {referencePickerNodeId ? <button type="button" className="absolute left-1/2 top-4 z-[90] -translate-x-1/2 rounded-full border px-4 py-2 text-sm font-medium shadow-lg backdrop-blur" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border }} onClick={exitNodeReferenceSelection}>从画布选择参考 · ESC 返回输入框</button> : null}
 
+                <div
+                    className="pointer-events-none absolute inset-0 z-[80] flex items-center justify-center transition-opacity duration-200 ease-out"
+                    style={{ background: `color-mix(in srgb, ${theme.canvas.background} 76%, transparent)`, opacity: showHoverPreview ? 1 : 0 }}
+                >
+                    <div className="flex flex-col overflow-hidden rounded-2xl border transition-transform duration-200 ease-out" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, boxShadow: "0 24px 60px rgba(0,0,0,.32)", transform: showHoverPreview ? "scale(1)" : "scale(0.95)" }}>
+                        {retainedHoverPreview ? (
+                            <>
+                                <div className="max-w-full truncate px-3.5 py-2 text-sm font-medium" style={{ color: theme.node.text }}>
+                                    {retainedHoverPreview.title || (retainedHoverPreview.video ? "视频" : "图片")}
+                                </div>
+                                <div className="overflow-hidden" style={{ width: retainedHoverPreview.width, height: retainedHoverPreview.height }}>
+                                    {retainedHoverPreview.video ? <video src={retainedHoverPreview.src} muted playsInline preload="metadata" className="size-full object-contain" /> : <img src={retainedHoverPreview.src} alt={retainedHoverPreview.title} className="size-full object-contain" />}
+                                </div>
+                            </>
+                        ) : null}
+                    </div>
+                </div>
+
                 {openDirectorNode?.type === CanvasNodeType.Director ? (
                     <CanvasDirector
                         nodeId={openDirectorNode.id}
@@ -4618,7 +4664,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                 ) : null}
 
                 <CanvasNodeHoverToolbar
-                    node={isNodeDragging || nodeImageSettingsOpen ? null : toolbarNode}
+                    node={isNodeDragging || nodeImageSettingsOpen || Boolean(referencePickerNodeId) ? null : toolbarNode}
                     viewport={viewport}
                     onKeep={keepNodeToolbar}
                     onLeave={hideNodeToolbar}

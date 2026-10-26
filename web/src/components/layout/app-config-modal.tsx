@@ -15,6 +15,9 @@ import { clearStorageConfigCache as clearImageStorageCache, defaultUserStoragePr
 import { audioFormatOptions, audioVoiceOptions, glmTtsFormatOptions, glmTtsVoiceOptions, isGlmTtsModel, normalizeAudioSpeedValue, normalizeGlmTtsFormat, normalizeGlmTtsSpeed, normalizeGlmTtsVoice } from "@/lib/audio-generation";
 import { grokTtsFormatOptions, grokTtsLanguageOptions, isGrok2APITtsConfig, normalizeGrokTtsFormat, normalizeGrokTtsLanguage, normalizeGrokTtsSpeed } from "@/lib/grok-tts";
 import { isGeminiConfig, isGeminiTtsModel } from "@/lib/gemini";
+import { applyImageResolution, imageResolutionOptions, inferImageResolution, type ImageResolution } from "@/lib/image-resolution";
+import { seedanceResolutionOptions } from "@/lib/seedance-video";
+import { normalizeVideoResolutionValue, videoSizeForResolution } from "@/components/video-settings-panel";
 import { geminiTtsVoiceOptions, normalizeGeminiTtsVoice } from "@/lib/gemini-tts";
 import { isMimoPresetTtsModel, isMimoTtsModel, isMimoVoiceCloneModel, isMimoVoiceDesignModel, mimoTtsFormatOptions, mimoTtsVoiceOptions } from "@/lib/mimo-tts";
 import { isWorkflowProtocol, modelChannelApiKeyUrls, modelChannelDefaultBaseUrls, modelChannelProtocolOptions } from "@/lib/model-channel";
@@ -538,8 +541,17 @@ export function AppConfigModal() {
                                 onBlur={(event) => updateConfig("canvasImageCount", normalizeImageCount(event.target.value))}
                             />
                         </Form.Item>
-                        {geminiTts ? (
-                            <Form.Item label="默认 Gemini 音色" className="mb-4">
+                        <Form.Item label="默认生图分辨率" extra="新建生图节点与配置节点的默认尺寸，单个节点仍可单独覆盖。" className="mb-4">
+                            <Select
+                                value={inferImageResolution(config.size || "auto")}
+                                options={[...imageResolutionOptions]}
+                                onChange={(value) => updateConfig("size", applyImageResolution(config.size || "auto", value as ImageResolution))}
+                            />
+                        </Form.Item>
+                        <Form.Item label="默认视频分辨率" className="mb-4">
+                            <Select value={normalizeVideoResolutionValue(config.vquality)} options={[...seedanceResolutionOptions]} onChange={(value) => { updateConfig("vquality", value); updateConfig("videoSize", videoSizeForResolution(value, config.videoSize)); }} />
+                        </Form.Item>
+                        {geminiTts ? (                            <Form.Item label="默认 Gemini 音色" className="mb-4">
                                 <Select showSearch optionFilterProp="label" value={normalizeGeminiTtsVoice(config.geminiTtsVoice)} options={geminiTtsVoiceOptions} onChange={(value) => updateConfig("geminiTtsVoice", value)} />
                             </Form.Item>
                         ) : isMimoPresetTtsModel(config.audioModel) ? (

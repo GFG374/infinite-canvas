@@ -1,9 +1,9 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Input, Select, Spin } from "antd";
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, ChevronLeft, ChevronRight, Clapperboard, Eye, FileText, Group, Image as ImageIcon, Music2, Plus, Search, Settings2, Type, Video } from "lucide-react";
+import { BookOpen, ChevronLeft, ChevronRight, Clapperboard, Eye, FileText, Group, Image as ImageIcon, LayoutGrid, Music2, Plus, Rows3, Search, Settings2, Type, Video } from "lucide-react";
 import { motion } from "motion/react";
 
 import { PromptDetailDialog } from "@/components/prompts/prompt-detail-dialog";
@@ -35,6 +35,8 @@ type Props = {
     onWidthChange: (width: number) => void;
     onClose: () => void;
     onFocusNode: (nodeId: string) => void;
+    onPreviewNode: (nodeId: string) => void;
+    onHoverNode: (nodeId: string | null) => void;
     onAssetDragStart: (payload: InsertAssetPayload) => void;
     onAssetDragEnd: () => void;
     onInsertAsset: (payload: InsertAssetPayload) => void;
@@ -80,7 +82,7 @@ const STATUS_COLOR: Record<string, string> = {
     error: "#ef4444",
 };
 
-export function CanvasSidePanel({ nodes, selectedNodeIds, open, width, onWidthChange, onClose, onFocusNode, onAssetDragStart, onAssetDragEnd, onInsertAsset }: Props) {
+export function CanvasSidePanel({ nodes, selectedNodeIds, open, width, onWidthChange, onClose, onFocusNode, onPreviewNode, onHoverNode, onAssetDragStart, onAssetDragEnd, onInsertAsset }: Props) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const tab = useCanvasUiStore(state => state.sidePanelTab);
     const setTab = useCanvasUiStore(state => state.setSidePanelTab);
@@ -143,7 +145,7 @@ export function CanvasSidePanel({ nodes, selectedNodeIds, open, width, onWidthCh
                 </div>
                 <div className="min-h-0 flex-1 overflow-hidden">
                     {tab === "canvas" ? (
-                        <CanvasNodesTab nodes={nodes} selectedNodeIds={selectedNodeIds} onFocusNode={onFocusNode} theme={theme} />
+                        <CanvasNodesTab nodes={nodes} selectedNodeIds={selectedNodeIds} onFocusNode={onFocusNode} onPreviewNode={onPreviewNode} onHoverNode={onHoverNode} theme={theme} />
                     ) : tab === "assets" ? (
                         <CanvasAssetBrowser theme={theme} onAssetDragStart={onAssetDragStart} onAssetDragEnd={onAssetDragEnd} onInsert={onInsertAsset} />
                     ) : (
@@ -169,11 +171,27 @@ function PanelTabButton({ label, active, theme, onClick }: { label: string; acti
     );
 }
 
-function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, theme }: { nodes: CanvasNodeData[]; selectedNodeIds: Set<string>; onFocusNode: (nodeId: string) => void; theme: CanvasTheme }) {
+function CanvasNodesTab({
+    nodes,
+    selectedNodeIds,
+    onFocusNode,
+    onPreviewNode,
+    onHoverNode,
+    theme,
+}: {
+    nodes: CanvasNodeData[];
+    selectedNodeIds: Set<string>;
+    onFocusNode: (nodeId: string) => void;
+    onPreviewNode: (nodeId: string) => void;
+    onHoverNode: (nodeId: string | null) => void;
+    theme: CanvasTheme;
+}) {
     const [keyword, setKeyword] = useState("");
     const [typeFilter, setTypeFilter] = useState<string>("all");
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
     const rowRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+    const nodeViewMode = useCanvasUiStore((state) => state.nodeViewMode);
+    const setNodeViewMode = useCanvasUiStore((state) => state.setNodeViewMode);
 
     const filtered = useMemo(() => {
         const query = keyword.trim().toLowerCase();
@@ -204,25 +222,78 @@ function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, theme }: { nodes:
         if (selectedId) rowRefs.current[selectedId]?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }, [selectedNodeIds]);
 
+    // 悬停离开整行列表时清空预览，避免预览残留
+    const handleRowLeave = (event: ReactMouseEvent<HTMLElement>) => {
+        const to = event.relatedTarget as Element | null;
+        if (!to || !to.closest("[data-node-item]")) onHoverNode(null);
+    };
+
     return (
-        <div className="flex h-full flex-col">
-            <div className="flex items-center gap-2 px-3 pb-2.5 pt-1">
-                <span className="text-xs font-medium opacity-60">画布元素</span>
-                <span className="text-xs opacity-35">{nodes.length}</span>
-                <Select size="small" variant="borderless" className="w-auto" popupMatchSelectWidth={false} value={typeFilter} onChange={setTypeFilter} options={NODE_FILTER_OPTIONS} />
+        <div className="flex h-full flex-col" onMouseLeave={() => onHoverNode(null)}>
+            <div className="flex items-center gap-1 px-3 pb-2.5 pt-1">
+                <span className="shrink-0 text-xs font-medium opacity-60">画布元素</span>
+                <span className="shrink-0 text-xs opacity-35">{nodes.length}</span>
+                <Select size="small" variant="borderless" className="ml-auto w-auto" popupMatchSelectWidth={false} value={typeFilter} onChange={setTypeFilter} options={NODE_FILTER_OPTIONS} />
+                <button
+                    type="button"
+                    onClick={() => setNodeViewMode(nodeViewMode === "grid" ? "list" : "grid")}
+                    className="flex shrink-0 items-center rounded-md px-1.5 py-1 opacity-70 transition hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/10"
+                    title={nodeViewMode === "grid" ? "列表视图" : "缩略图视图"}
+                    aria-label={nodeViewMode === "grid" ? "列表视图" : "缩略图视图"}
+                >
+                    {nodeViewMode === "grid" ? <Rows3 className="size-3.5" /> : <LayoutGrid className="size-3.5" />}
+                </button>
             </div>
             <div className="px-3 pb-2.5">
                 <Input size="small" allowClear prefix={<Search className="size-3.5 text-stone-400" />} placeholder="搜索节点" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-                {treeRows.length ? (
+                {nodeViewMode === "grid" ? (
+                    filtered.length ? (
+                        <div className="grid gap-2 px-1 [grid-template-columns:repeat(auto-fill,minmax(88px,1fr))]">
+                            {filtered.map((node) => {
+                                const Icon = NODE_TYPE_ICON[node.type] || FileText;
+                                const hasImage = isCanvasImageNodeType(node.type) && node.metadata?.content;
+                                const active = selectedNodeIds.has(node.id);
+                                return (
+                                    <button
+                                        key={node.id}
+                                        type="button"
+                                        data-node-item
+                                        onClick={() => onFocusNode(node.id)}
+                                        onMouseEnter={() => onHoverNode(node.id)}
+                                        onMouseLeave={handleRowLeave}
+                                        className={cn("group relative flex min-w-0 flex-col rounded-lg p-1 text-left transition", active ? "" : "hover:bg-black/5 dark:hover:bg-white/5")}
+                                        style={active ? { background: theme.toolbar.activeBg } : undefined}
+                                        title="聚焦节点"
+                                    >
+                                        <span className="relative grid aspect-square w-full place-items-center overflow-hidden rounded-md">
+                                            {hasImage ? <img src={node.metadata?.content} alt={node.title} className="size-full object-cover" /> : <Icon className="size-6 opacity-60" />}
+                                            {node.metadata?.status && node.metadata.status !== "idle" ? <span className="absolute right-1 top-1 size-1.5 rounded-full" style={{ background: STATUS_COLOR[node.metadata.status] || "transparent" }} /> : null}
+                                        </span>
+                                        <span className="mt-1 block truncate text-xs font-medium leading-snug">{node.title || NODE_TYPE_LABEL[node.type] || "未命名节点"}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <div className="pt-16 text-center text-sm opacity-40">{nodes.length ? "无匹配节点" : "画布暂无节点"}</div>
+                    )
+                ) : treeRows.length ? (
                     <div className="space-y-1.5">
                         {treeRows.map(({ node, depth, hasChildren }) => {
                             const Icon = NODE_TYPE_ICON[node.type] || FileText;
                             const hasImage = isCanvasImageNodeType(node.type) && node.metadata?.content;
                             const active = selectedNodeIds.has(node.id);
                             return (
-                                <div key={node.id} className={cn("relative flex items-center rounded-lg transition", depth && "ml-5", active ? "" : "hover:bg-black/5 dark:hover:bg-white/5")} style={active ? { background: theme.toolbar.activeBg } : undefined}>
+                                <div
+                                    key={node.id}
+                                    data-node-item
+                                    className={cn("relative flex items-center rounded-lg transition", depth && "ml-5", active ? "" : "hover:bg-black/5 dark:hover:bg-white/5")}
+                                    style={active ? { background: theme.toolbar.activeBg } : undefined}
+                                    onMouseEnter={() => onHoverNode(node.id)}
+                                    onMouseLeave={handleRowLeave}
+                                >
                                     {depth ? <span className="pointer-events-none absolute -left-3 top-[calc(-50%-0.4rem)] h-[calc(100%+0.4rem)] w-3 rounded-bl-md border-b border-l opacity-45" style={{ borderColor: theme.node.stroke }} /> : null}
                                     {node.type === CanvasNodeType.Group && hasChildren ? (
                                         <button type="button" onClick={() => setCollapsedGroups((current) => (current.has(node.id) ? new Set([...current].filter((id) => id !== node.id)) : new Set(current).add(node.id)))} className="ml-1 grid size-6 shrink-0 place-items-center opacity-55 transition hover:opacity-100" aria-label={node.title}>
@@ -236,6 +307,7 @@ function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, theme }: { nodes:
                                         type="button"
                                         onClick={() => onFocusNode(node.id)}
                                         className={cn("flex min-w-0 flex-1 items-center gap-3 py-2 pr-2 text-left", node.type === CanvasNodeType.Group && hasChildren ? "pl-0" : "pl-2")}
+                                        title="聚焦节点"
                                     >
                                         <span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-md">
                                             {hasImage ? <img src={node.metadata?.content} alt={node.title} className="size-full object-cover" /> : <Icon className="size-5 opacity-60" />}
@@ -246,6 +318,13 @@ function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, theme }: { nodes:
                                         </span>
                                         {node.metadata?.status && node.metadata.status !== "idle" ? <span className="size-1.5 shrink-0 rounded-full" style={{ background: STATUS_COLOR[node.metadata.status] || "transparent" }} /> : null}
                                     </button>
+                                    {hasImage ? (
+                                        <div className="flex shrink-0 flex-col items-center gap-0.5 pr-1.5">
+                                            <button type="button" onClick={() => onPreviewNode(node.id)} className="grid size-7 place-items-center rounded-md opacity-55 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10" aria-label="预览原图" title="预览原图">
+                                                <Eye className="size-3.5" />
+                                            </button>
+                                        </div>
+                                    ) : null}
                                 </div>
                             );
                         })}

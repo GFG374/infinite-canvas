@@ -104,6 +104,8 @@ const QUALITY_BASE: Record<string, number> = {
     low: 1024,
     medium: 2048,
     high: 2880,
+    xhigh: 4096,
+    max: 5120,
     standard: 1024,
     hd: 2048,
 };
@@ -140,9 +142,24 @@ function greatestCommonDivisor(a: number, b: number) {
     return a;
 }
 
-function resolveSize(quality: string, ratio: string): string | undefined {
-    const basePixels = QUALITY_BASE[quality];
-    if (!basePixels || ratio === "auto" || !ratio) return undefined;
+// 与 image-settings-panel 的宽高比选项宽度保持一致：界面显示多少像素就发多少，质量档位不再参与尺寸换算
+const RATIO_PRESET_SIZE: Record<string, string> = {
+    "1:1": "1024x1024",
+    "3:2": "1536x1024",
+    "2:3": "1024x1536",
+    "4:3": "1024x768",
+    "3:4": "768x1024",
+    "16:9": "1920x1080",
+    "9:16": "1080x1920",
+    "21:9": "1568x672",
+};
+const IMAGE_SIZE_STEP = 16;
+const DEFAULT_IMAGE_SHORT_SIDE = 1024;
+
+function resolveSize(ratio: string): string | undefined {
+    if (!ratio || ratio === "auto") return undefined;
+    const preset = RATIO_PRESET_SIZE[ratio];
+    if (preset) return preset;
 
     const parts = ratio.split(":");
     if (parts.length !== 2) return undefined;
@@ -151,17 +168,16 @@ function resolveSize(quality: string, ratio: string): string | undefined {
     if (!w || !h) return undefined;
 
     const a = greatestCommonDivisor(w, h);
-
-    const unit = Math.round(Math.sqrt((basePixels * basePixels) / ((w / a) * (h / a))) / 16) * 16;
+    const unit = Math.round(Math.sqrt((DEFAULT_IMAGE_SHORT_SIDE * DEFAULT_IMAGE_SHORT_SIDE) / ((w / a) * (h / a))) / IMAGE_SIZE_STEP) * IMAGE_SIZE_STEP;
     return `${(w / a) * unit}x${(h / a) * unit}`;
 }
 
-function resolveRequestSize(quality: string | undefined, size: string) {
+function resolveRequestSize(size: string) {
     const value = size.trim();
     if (!value || value === "auto") return undefined;
     if (/^\d+x\d+$/.test(value)) return value;
-    // 用户只选了宽高比时,即使 quality=auto 也要折算成具体像素尺寸,避免 "1:1" 这种非法值发到 API。
-    return resolveSize(quality && QUALITY_BASE[quality] ? quality : "low", value);
+    // 用户只选了宽高比时也要折算成具体像素尺寸，避免 "1:1" 这种非法值发到 API。
+    return resolveSize(value);
 }
 
 function createImageRequestParams(config: AiConfig): ImageRequestParams {
@@ -171,7 +187,7 @@ function createImageRequestParams(config: AiConfig): ImageRequestParams {
     return {
         n: normalizeBoundedInteger(config.count, 1, 1, 15),
         quality,
-        size: resolveRequestSize(quality, config.size),
+        size: resolveRequestSize(config.size),
         timeoutSeconds: IMAGE_REQUEST_TIMEOUT_SECONDS,
         streamPartialImages: normalizeBoundedInteger(config.streamPartialImages, 1, 0, 3),
     };

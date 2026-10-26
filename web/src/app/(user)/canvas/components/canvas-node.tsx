@@ -283,7 +283,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     return (
         <div
             data-node-id={data.id}
-            className={`node-element absolute flex select-none flex-col transition-shadow duration-200 ${isGroup ? "z-[5]" : isSelected ? "z-50" : "z-10"} ${referenceSelectionState === "available" ? "cursor-pointer" : referenceSelectionState ? "cursor-not-allowed" : ""}`}
+            className={`node-element group/node absolute flex select-none flex-col transition-shadow duration-200 ${isGroup ? "z-[5]" : isSelected ? "z-50" : "z-10"} ${referenceSelectionState === "available" ? "cursor-pointer" : referenceSelectionState ? "cursor-not-allowed" : ""}`}
             style={{
                 transform: `translate(${data.position.x}px, ${data.position.y}px)`,
                 width: data.width,
@@ -695,7 +695,8 @@ function VideoNodeContent({ node, theme, isSelected, onViewImage, onResize }: No
             </div>
         );
     const controlStyle = { background: theme.toolbar.panel, color: theme.toolbar.item };
-    const controlClassName = "absolute bottom-2 z-20 flex size-7 items-center justify-center rounded-md opacity-70 backdrop-blur transition-opacity hover:opacity-100";
+    // 操作按钮默认隐藏，鼠标移入节点才显示，不再遮挡画面；选中时保持可见
+    const controlClassName = `absolute bottom-2 z-20 flex size-7 items-center justify-center rounded-md backdrop-blur transition-opacity hover:opacity-100 ${isSelected ? "opacity-70" : "opacity-0 group-hover/node:opacity-100"}`;
     const keepVideoFocus = (event: React.MouseEvent<HTMLButtonElement>) => {
         event.preventDefault();
         event.stopPropagation();

@@ -4,12 +4,15 @@ import type { CanvasNodeMetadata, CanvasNodeType } from "../types";
 
 export type CanvasPanelTab = "canvas" | "assets" | "prompts";
 export type CanvasAssetSource = "mine" | "library";
+export type CanvasNodeViewMode = "list" | "grid";
 
 type CanvasUiStore = {
     generationDefaults: Partial<Record<CanvasNodeType.Image | CanvasNodeType.Video, Pick<CanvasNodeMetadata, "quality" | "size" | "vquality">>>;
     sidePanelTab: CanvasPanelTab;
     assetSource: CanvasAssetSource;
     assetFormOpen: boolean;
+    nodeViewMode: CanvasNodeViewMode;
+    setNodeViewMode: (mode: CanvasNodeViewMode) => void;
     setAssetFormOpen: (open: boolean) => void;
     setSidePanelTab: (tab: CanvasPanelTab) => void;
     setAssetSource: (source: CanvasAssetSource) => void;
@@ -30,6 +33,8 @@ export const useCanvasUiStore = create<CanvasUiStore>()(persist((set) => ({
     sidePanelTab: "assets",
     assetSource: "mine",
     assetFormOpen: false,
+    nodeViewMode: "list",
+    setNodeViewMode: (nodeViewMode) => set({ nodeViewMode }),
     setAssetFormOpen: (assetFormOpen) => set({ assetFormOpen }),
     setSidePanelTab: (sidePanelTab) => set({ sidePanelTab }),
     setAssetSource: (assetSource) => set({ assetSource }),
@@ -45,5 +50,5 @@ export const useCanvasUiStore = create<CanvasUiStore>()(persist((set) => ({
     removeSelectedProjectIds: (ids) => set((state) => ({ selectedProjectIds: state.selectedProjectIds.filter((id) => !ids.includes(id)) })),
 }), {
     name: "infinite-canvas:canvas_ui_store",
-    partialize: (state) => ({ generationDefaults: state.generationDefaults }),
+    partialize: (state) => ({ generationDefaults: state.generationDefaults, nodeViewMode: state.nodeViewMode }),
 }));
