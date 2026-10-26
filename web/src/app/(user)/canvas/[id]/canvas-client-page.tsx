@@ -303,6 +303,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
     });
 
     const config = useConfigStore((state) => state.config);
+    const updateConfig = useConfigStore((state) => state.updateConfig);
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
@@ -349,6 +350,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
     const [toolbarNodeId, setToolbarNodeId] = useState<string | null>(null);
     const [nodeImageSettingsOpen, setNodeImageSettingsOpen] = useState(false);
     const [dialogNodeId, setDialogNodeId] = useState<string | null>(null);
+    const focusNodeRef = useRef<((nodeId: string) => void) | null>(null);
     const [openDirectorNodeId, setOpenDirectorNodeId] = useState<string | null>(null);
     const [infoNodeId, setInfoNodeId] = useState<string | null>(null);
     const [cropNodeId, setCropNodeId] = useState<string | null>(null);
@@ -792,6 +794,8 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
     }, [selectionBox]);
 
     useEffect(() => {
+        // containerRef 要等 projectLoaded 之后才挂载，否则只会测到一次空容器
+        if (!projectLoaded) return;
         const el = containerRef.current;
         if (!el) return;
 
@@ -808,7 +812,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
         const resizeObserver = new ResizeObserver(updateSize);
         resizeObserver.observe(el);
         return () => resizeObserver.disconnect();
-    }, []);
+    }, [projectLoaded]);
 
     const screenToCanvas = useCallback((clientX: number, clientY: number) => {
         const rect = containerRef.current?.getBoundingClientRect();
@@ -1662,6 +1666,10 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                 setDialogNodeId((current) => (current === clickedNodeId ? current : null));
             } else {
                 setDialogNodeId(clickedNodeId);
+                if (useConfigStore.getState().config.autoFocusOnSelect) {
+                    // 等生成面板渲染完成再居中，避免被面板和悬浮工具条裁掉
+                    requestAnimationFrame(() => focusNodeRef.current?.(clickedNodeId));
+                }
             }
         }
     }, []);
@@ -4326,6 +4334,10 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
         if (focusAnimationRef.current) cancelAnimationFrame(focusAnimationRef.current);
     }, []);
 
+    useEffect(() => {
+        focusNodeRef.current = focusNode;
+    }, [focusNode]);
+
     if (!projectLoaded) return <CanvasRefreshShell />;
     return (
         <main
@@ -4656,12 +4668,18 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                     onAddConfig={() => createNode(CanvasNodeType.Config)}
                     onUndo={undoCanvas}
                     onRedo={redoCanvas}
+                    onFocusSelected={() => {
+                        const nodeId = selectedNodeIds.values().next().value;
+                        if (nodeId) focusNode(nodeId);
+                    }}
                     onUpload={() => handleUploadRequest()}
                     onDelete={() => deleteNodes(new Set(selectedNodeIds))}
                     onClear={() => setClearConfirmOpen(true)}
                     onCanvasToolChange={setCanvasTool}
                     onBackgroundModeChange={setBackgroundMode}
                     onShowImageInfoChange={setShowImageInfo}
+                    autoFocusOnSelect={config.autoFocusOnSelect}
+                    onAutoFocusOnSelectChange={(enabled) => updateConfig("autoFocusOnSelect", enabled)}
                     onOpenAssetLibrary={() => openCanvasAssets("library")}
                     onOpenMyAssets={() => openCanvasAssets("mine")}
                 />

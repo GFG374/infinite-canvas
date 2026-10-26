@@ -80,6 +80,7 @@ export type AiConfig = {
     count: string;
     canvasImageCount: string;
     nodeRegenerateBehavior: "new-node" | "overwrite";
+    autoFocusOnSelect: boolean;
     timeout: string;
     apiMode: string;
     streamImages: string;
@@ -155,6 +156,7 @@ export const defaultConfig: AiConfig = {
     count: "1",
     canvasImageCount: "1",
     nodeRegenerateBehavior: "new-node",
+    autoFocusOnSelect: false,
     timeout: "600",
     apiMode: "images",
     streamImages: "",

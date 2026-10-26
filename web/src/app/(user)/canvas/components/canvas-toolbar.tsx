@@ -1,7 +1,7 @@
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from "react";
 import { useRef, useState } from "react";
 import { Button, Segmented, Switch } from "antd";
-import { CircleDot, Eraser, FolderOpen, Globe2, Hand, Image as ImageIcon, Info, Layers3, Library, Moon, MousePointer2, Music2, Palette, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video } from "lucide-react";
+import { CircleDot, Eraser, Focus, FolderOpen, Globe2, Hand, Image as ImageIcon, Info, Layers3, Library, Moon, MousePointer2, Music2, Palette, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video } from "lucide-react";
 
 import { canvasThemes, type CanvasBackgroundMode, type CanvasColorTheme, type CanvasTheme } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -14,6 +14,7 @@ export function CanvasToolbar({
     canRedo,
     backgroundMode,
     showImageInfo,
+    autoFocusOnSelect,
     onAddImage,
     onAddVideo,
     onAddAudio,
@@ -23,12 +24,14 @@ export function CanvasToolbar({
     onAddConfig,
     onUndo,
     onRedo,
+    onFocusSelected,
     onUpload,
     onDelete,
     onClear,
     onCanvasToolChange,
     onBackgroundModeChange,
     onShowImageInfoChange,
+    onAutoFocusOnSelectChange,
     onOpenAssetLibrary,
     onOpenMyAssets,
 }: {
@@ -38,6 +41,7 @@ export function CanvasToolbar({
     canRedo: boolean;
     backgroundMode: CanvasBackgroundMode;
     showImageInfo: boolean;
+    autoFocusOnSelect: boolean;
     onAddImage: () => void;
     onAddVideo: () => void;
     onAddAudio: () => void;
@@ -47,12 +51,14 @@ export function CanvasToolbar({
     onAddConfig: () => void;
     onUndo: () => void;
     onRedo: () => void;
+    onFocusSelected: () => void;
     onUpload: () => void;
     onDelete: () => void;
     onClear: () => void;
     onCanvasToolChange: (tool: "select" | "pan") => void;
     onBackgroundModeChange: (mode: CanvasBackgroundMode) => void;
     onShowImageInfoChange: (show: boolean) => void;
+    onAutoFocusOnSelectChange: (enabled: boolean) => void;
     onOpenAssetLibrary: () => void;
     onOpenMyAssets: () => void;
 }) {
@@ -81,6 +87,9 @@ export function CanvasToolbar({
                 </ToolbarButton>
                 <ToolbarButton id="tool-redo" label="重做" disabled={!canRedo} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onRedo}>
                     <Redo2 className="size-4.5" />
+                </ToolbarButton>
+                <ToolbarButton id="tool-focus" label="居中聚焦" disabled={!selectedCount} hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onFocusSelected}>
+                    <Focus className="size-4.5" />
                 </ToolbarButton>
                 <Divider theme={theme} />
                 <ToolbarButton id="tool-text" label="文本" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddText}>
@@ -194,6 +203,13 @@ export function CanvasToolbar({
                         </span>
                         <Switch size="small" checked={showImageInfo} onChange={onShowImageInfoChange} />
                     </div>
+                    <div className="mt-1 flex items-center justify-between gap-3 rounded-lg px-1.5 py-1">
+                        <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] font-medium opacity-65">
+                            <Focus className="size-3.5" />
+                            选中自动居中
+                        </span>
+                        <Switch size="small" checked={autoFocusOnSelect} onChange={onAutoFocusOnSelectChange} />
+                    </div>
                 </div>
             ) : null}
         </div>
@@ -286,6 +302,7 @@ function toolLabel(id: string) {
     if (id === "tool-pan") return "移动";
     if (id === "tool-undo") return "撤销";
     if (id === "tool-redo") return "重做";
+    if (id === "tool-focus") return "居中聚焦";
     if (id === "tool-text") return "文本";
     if (id === "tool-image") return "图片";
     if (id === "tool-video") return "视频";
